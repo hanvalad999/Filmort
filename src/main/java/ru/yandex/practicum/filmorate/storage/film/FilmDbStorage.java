@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
@@ -61,6 +63,7 @@ public class FilmDbStorage implements FilmStorage {
             """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final FilmRowMapper mapper;
 
     @Override
@@ -317,5 +320,79 @@ public class FilmDbStorage implements FilmStorage {
                     ps.setInt(1, filmId);
                     ps.setInt(2, director.getId());
                 });
+    }
+
+    /**
+     * Получает рекомендации фильмов для пользователя на основе коллаборативной
+     * фильтрации.
+     * <p>
+     * Алгоритм:
+     * 1. Находим пользователя с максимальным количеством общих лайков (пересечение
+     * вкусов)
+     * 2. Берем фильмы, которые лайкнул этот пользователь, но не лайкнул целевой
+     * пользователь
+     * 3. Сортируем по популярности (количеству лайков)
+     * <p>
+     * SQL запрос работает следующим образом:
+     * - Подзапрос similar_users находит пользователей с общими лайками и считает
+     * количество пересечений
+     * - Основной запрос выбирает фильмы, которые лайкнул наиболее похожий
+     * пользователь,
+     * но не лайкнул целевой пользователь
+     * - Результат сортируется по популярности фильмов
+     *
+     * @param userId идентификатор пользователя, для которого составляются
+     *               рекомендации
+     * @return список рекомендованных фильмов, отсортированных по популярности
+     */
+    @Override
+    public List<Film> getRecommendations(Integer userId) {
+        // Проверяем, есть ли у пользователя лайки
+        String checkLikesSql = "SELECT COUNT(*) FROM film_likes WHERE user_id = ?";
+        Integer userLikesCount = jdbcTemplate.queryForObject(checkLikesSql, Integer.class, userId);
+
+        if (userLikesCount == null || userLikesCount == 0) {
+            log.debug("У пользователя {} нет лайков, рекомендации не могут быть составлены", userId);
+            return List.of();
+        }
+
+        String sql = """
+                WITH similar_users AS (
+                    SELECT
+                        fl2.user_id AS similar_user_id,
+                        COUNT(*) AS common_likes
+                    FROM film_likes fl1
+                    JOIN film_likes fl2 ON fl1.film_id = fl2.film_id
+                    WHERE fl1.user_id = :userId
+                      AND fl2.user_id != :userId
+                    GROUP BY fl2.user_id
+                    ORDER BY common_likes DESC
+                    LIMIT 1
+                )
+                """ + BASE_SELECT_QUERY + """
+                WHERE f.film_id IN (
+                    SELECT fl.film_id
+                    FROM film_likes fl
+                    WHERE fl.user_id = (SELECT similar_user_id FROM similar_users)
+                      AND fl.film_id NOT IN (
+                          SELECT film_id
+                          FROM film_likes
+                          WHERE user_id = :userId
+                      )
+                )
+                """ + GROUP_BY + """
+                ORDER BY likes_count DESC
+                """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource("userId", userId);
+        List<Film> films = namedParameterJdbcTemplate.query(sql, params, mapper);
+
+        if (films.isEmpty()) {
+            log.debug("Для пользователя {} не найдено похожих пользователей или все фильмы уже просмотрены", userId);
+        } else {
+            log.debug("Получены рекомендации для пользователя {}, количество: {}", userId, films.size());
+        }
+
+        return films;
     }
 }

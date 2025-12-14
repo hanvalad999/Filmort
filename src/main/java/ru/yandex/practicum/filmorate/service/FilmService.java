@@ -105,4 +105,13 @@ public class FilmService {
         }
         return filmStorage.getFilmsByDirector(directorid, sortBy);
     }
+
+    /**
+     * Получить рекомендации по фильмам для пользователя
+     */
+    public List<Film> getRecommendations(Integer userId) {
+        userService.getUserById(userId); // Проверяем существование пользователя
+        log.info("Запрос рекомендаций для пользователя {}", userId);
+        return filmStorage.getRecommendations(userId);
+    }
 }

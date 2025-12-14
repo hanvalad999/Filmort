@@ -4,9 +4,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import ru.yandex.practicum.filmorate.model.Film;
 import ru.yandex.practicum.filmorate.model.User;
 import ru.yandex.practicum.filmorate.model.feed.FeedEvent;
 import ru.yandex.practicum.filmorate.service.FeedService;
+import ru.yandex.practicum.filmorate.service.FilmService;
 import ru.yandex.practicum.filmorate.service.UserService;
 
 import java.util.Collection;
@@ -19,6 +21,7 @@ import java.util.List;
 public class UserController {
     private final UserService userService;
     private final FeedService feedService;
+    private final FilmService filmService;
 
     @PostMapping
     public User createUser(@Valid @RequestBody User user) {
@@ -63,5 +66,10 @@ public class UserController {
     @GetMapping("/{id}/feed")
     public Collection<FeedEvent> getFeed(@PathVariable Integer id) {
         return feedService.getFeed(id);
+    }
+
+    @GetMapping("/{id}/recommendations")
+    public Collection<Film> getRecommendations(@PathVariable Integer id) {
+        return filmService.getRecommendations(id);
     }
 }
